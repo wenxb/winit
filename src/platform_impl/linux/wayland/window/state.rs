@@ -1211,12 +1211,9 @@ impl From<ResizeDirection> for XdgResizeEdge {
 
 // NOTE: Rust doesn't allow `From<Option<Theme>>`.
 #[cfg(feature = "sctk-adwaita")]
-fn into_sctk_adwaita_config(theme: Option<Theme>) -> sctk_adwaita::FrameConfig {
-    let mut config = match theme {
-        Some(Theme::Light) => sctk_adwaita::FrameConfig::light(),
-        Some(Theme::Dark) => sctk_adwaita::FrameConfig::dark(),
-        None => sctk_adwaita::FrameConfig::auto(),
-    };
+fn into_sctk_adwaita_config(_theme: Option<Theme>) -> sctk_adwaita::FrameConfig {
+    // beckon 的面板固定浅色，帧跟随浅色；将来做主题切换时改为跟随窗口主题。
+    let mut config = sctk_adwaita::FrameConfig::light();
     config.hide_titlebar = true;
     config
 }

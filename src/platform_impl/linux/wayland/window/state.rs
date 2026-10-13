@@ -1212,9 +1212,11 @@ impl From<ResizeDirection> for XdgResizeEdge {
 // NOTE: Rust doesn't allow `From<Option<Theme>>`.
 #[cfg(feature = "sctk-adwaita")]
 fn into_sctk_adwaita_config(theme: Option<Theme>) -> sctk_adwaita::FrameConfig {
-    match theme {
+    let mut config = match theme {
         Some(Theme::Light) => sctk_adwaita::FrameConfig::light(),
         Some(Theme::Dark) => sctk_adwaita::FrameConfig::dark(),
         None => sctk_adwaita::FrameConfig::auto(),
-    }
+    };
+    config.hide_titlebar = true;
+    config
 }

@@ -96,13 +96,9 @@ impl Window {
 
         let size: Size = attributes.inner_size.unwrap_or(LogicalSize::new(800., 600.).into());
 
-        // We prefer server side decorations, however to not have decorations we ask for client
-        // side decorations instead.
-        let default_decorations = if attributes.decorations {
-            WindowDecorations::RequestServer
-        } else {
-            WindowDecorations::RequestClient
-        };
+        // This fork always requests client-side decorations so the sctk-adwaita
+        // frame (border + shadow) is used on compositors that support CSD (e.g. GNOME).
+        let default_decorations = WindowDecorations::RequestClient;
 
         let window =
             state.xdg_shell.create_window(surface.clone(), default_decorations, &queue_handle);

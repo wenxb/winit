@@ -577,10 +577,13 @@ impl WindowState {
         let right = r as f64;
         let bottom = b as f64;
 
-        let card_x_min = left;
-        let card_x_max = (w - right).max(left);
-        let card_y_min = top;
-        let card_y_max = (h - bottom).max(top);
+        // Allow the resize trigger area to extend 8px into the panel border,
+        // so users can comfortably grab the visible card edge/border.
+        let panel_inset = 8.0_f64;
+        let card_x_min = left + panel_inset;
+        let card_x_max = (w - right - panel_inset).max(card_x_min);
+        let card_y_min = top + panel_inset;
+        let card_y_max = (h - bottom - panel_inset).max(card_y_min);
 
         // If inside the window's content card, this is normal application area, not margin.
         if x >= card_x_min && x < card_x_max && y >= card_y_min && y < card_y_max {

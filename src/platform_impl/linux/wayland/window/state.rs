@@ -577,25 +577,38 @@ impl WindowState {
         let right = r as f64;
         let bottom = b as f64;
 
-        // Allow the resize trigger area to extend 8px into the panel border,
-        // so users can comfortably grab the visible card edge/border.
-        let panel_inset = 8.0_f64;
-        let card_x_min = left + panel_inset;
-        let card_x_max = (w - right - panel_inset).max(card_x_min);
-        let card_y_min = top + panel_inset;
-        let card_y_max = (h - bottom - panel_inset).max(card_y_min);
+        // The trigger area tightly hugs the visible card border:
+        // - outer_reach: only 6px outside the visible card (does NOT extend into the far transparent void)
+        // - inner_reach: 8px inside the visible card border
+        let outer_reach = 6.0_f64;
+        let inner_reach = 8.0_f64;
+
+        let outer_x_min = (left - outer_reach).max(0.0);
+        let outer_x_max = (w - right + outer_reach).min(w);
+        let outer_y_min = (top - outer_reach).max(0.0);
+        let outer_y_max = (h - bottom + outer_reach).min(h);
+
+        // If outside the outer boundary (far out in the transparent padding), no resize.
+        if x < outer_x_min || x >= outer_x_max || y < outer_y_min || y >= outer_y_max {
+            return None;
+        }
+
+        let inner_x_min = left + inner_reach;
+        let inner_x_max = (w - right - inner_reach).max(inner_x_min);
+        let inner_y_min = top + inner_reach;
+        let inner_y_max = (h - bottom - inner_reach).max(inner_y_min);
 
         // If inside the window's content card, this is normal application area, not margin.
-        if x >= card_x_min && x < card_x_max && y >= card_y_min && y < card_y_max {
+        if x >= inner_x_min && x < inner_x_max && y >= inner_y_min && y < inner_y_max {
             return None;
         }
 
         // Corner extension to make corner resize targets easy and comfortable to grab.
         let corner_ext = 16.0_f64;
-        let near_left = x < card_x_min + corner_ext;
-        let near_right = x >= card_x_max - corner_ext;
-        let near_top = y < card_y_min + corner_ext;
-        let near_bottom = y >= card_y_max - corner_ext;
+        let near_left = x < inner_x_min + corner_ext;
+        let near_right = x >= inner_x_max - corner_ext;
+        let near_top = y < inner_y_min + corner_ext;
+        let near_bottom = y >= inner_y_max - corner_ext;
 
         if near_top && near_left {
             Some(ResizeDirection::NorthWest)
@@ -605,13 +618,13 @@ impl WindowState {
             Some(ResizeDirection::SouthWest)
         } else if near_bottom && near_right {
             Some(ResizeDirection::SouthEast)
-        } else if y < card_y_min {
+        } else if y < inner_y_min {
             Some(ResizeDirection::North)
-        } else if y >= card_y_max {
+        } else if y >= inner_y_max {
             Some(ResizeDirection::South)
-        } else if x < card_x_min {
+        } else if x < inner_x_min {
             Some(ResizeDirection::West)
-        } else if x >= card_x_max {
+        } else if x >= inner_x_max {
             Some(ResizeDirection::East)
         } else {
             None

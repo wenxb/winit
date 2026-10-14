@@ -284,7 +284,9 @@ impl WindowState {
         }
 
         if let Some(subcompositor) = subcompositor.as_ref().filter(|_| {
-            configure.decoration_mode == DecorationMode::Client
+            self.decorate
+                && self.custom_margins.is_none()
+                && configure.decoration_mode == DecorationMode::Client
                 && self.frame.is_none()
                 && !self.csd_fails
         }) {
@@ -310,8 +312,8 @@ impl WindowState {
                     self.csd_fails = true;
                 },
             }
-        } else if configure.decoration_mode == DecorationMode::Server {
-            // Drop the frame for server side decorations to save resources.
+        } else if configure.decoration_mode == DecorationMode::Server || !self.decorate || self.custom_margins.is_some() {
+            // Drop the frame when decorations are disabled or custom margins are active.
             self.frame = None;
         }
 
@@ -694,6 +696,7 @@ impl WindowState {
     /// Sets custom window geometry margins (left, top, right, bottom).
     pub fn set_geometry_margins(&mut self, left: u32, top: u32, right: u32, bottom: u32) {
         self.custom_margins = Some((left, top, right, bottom));
+        self.frame = None;
         let gx = left as i32;
         let gy = top as i32;
         let gw = self.size.width.saturating_sub(left + right);
@@ -708,6 +711,7 @@ impl WindowState {
     /// Sets custom window geometry (e.g. For custom transparent margins/shadows).
     pub fn set_custom_window_geometry(&mut self, x: i32, y: i32, width: u32, height: u32) {
         self.custom_window_geometry = Some((x, y, width, height));
+        self.frame = None;
         self.window.xdg_surface().set_window_geometry(x, y, width as i32, height as i32);
         self.window.wl_surface().commit();
         let _ = self.connection.flush();

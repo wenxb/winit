@@ -157,6 +157,9 @@ pub struct WindowState {
     /// Custom window margins for geometry (left, top, right, bottom).
     custom_margins: Option<(u32, u32, u32, u32)>,
 
+    /// Whether the cursor is currently over custom margins.
+    cursor_in_margin: bool,
+
     /// The underlying SCTK window.
     pub window: Window,
 
@@ -227,6 +230,7 @@ impl WindowState {
             viewport,
             custom_window_geometry: None,
             custom_margins: None,
+            cursor_in_margin: false,
             window,
         }
     }
@@ -553,6 +557,94 @@ impl WindowState {
         }
     }
 
+    /// Checks whether the point `(x, y)` in logical coordinates falls into the margin resize area,
+    /// and if so returns the corresponding `ResizeDirection`.
+    pub fn margin_resize_direction(&self, x: f64, y: f64) -> Option<ResizeDirection> {
+        if !self.resizable {
+            return None;
+        }
+
+        let (l, t, r, b) = match self.custom_margins {
+            Some(margins) => margins,
+            None if !self.decorate => (6, 6, 6, 6),
+            _ => return None,
+        };
+
+        let w = self.size.width as f64;
+        let h = self.size.height as f64;
+        let left = l as f64;
+        let top = t as f64;
+        let right = r as f64;
+        let bottom = b as f64;
+
+        let card_x_min = left;
+        let card_x_max = (w - right).max(left);
+        let card_y_min = top;
+        let card_y_max = (h - bottom).max(top);
+
+        // If inside the window's content card, this is normal application area, not margin.
+        if x >= card_x_min && x < card_x_max && y >= card_y_min && y < card_y_max {
+            return None;
+        }
+
+        // Corner extension to make corner resize targets easy and comfortable to grab.
+        let corner_ext = 16.0_f64;
+        let near_left = x < card_x_min + corner_ext;
+        let near_right = x >= card_x_max - corner_ext;
+        let near_top = y < card_y_min + corner_ext;
+        let near_bottom = y >= card_y_max - corner_ext;
+
+        if near_top && near_left {
+            Some(ResizeDirection::NorthWest)
+        } else if near_top && near_right {
+            Some(ResizeDirection::NorthEast)
+        } else if near_bottom && near_left {
+            Some(ResizeDirection::SouthWest)
+        } else if near_bottom && near_right {
+            Some(ResizeDirection::SouthEast)
+        } else if y < card_y_min {
+            Some(ResizeDirection::North)
+        } else if y >= card_y_max {
+            Some(ResizeDirection::South)
+        } else if x < card_x_min {
+            Some(ResizeDirection::West)
+        } else if x >= card_x_max {
+            Some(ResizeDirection::East)
+        } else {
+            None
+        }
+    }
+
+    /// Handles pointer movement over the margin. If over a margin, updates cursor and returns `Some(icon)`.
+    /// When leaving margin back into the content area, restores the application's cursor style.
+    pub fn margin_point_moved(&mut self, x: f64, y: f64) -> Option<CursorIcon> {
+        let dir = self.margin_resize_direction(x, y);
+        if let Some(dir) = dir {
+            self.cursor_in_margin = true;
+            Some(match dir {
+                ResizeDirection::North => CursorIcon::NResize,
+                ResizeDirection::South => CursorIcon::SResize,
+                ResizeDirection::East => CursorIcon::EResize,
+                ResizeDirection::West => CursorIcon::WResize,
+                ResizeDirection::NorthWest => CursorIcon::NwResize,
+                ResizeDirection::NorthEast => CursorIcon::NeResize,
+                ResizeDirection::SouthWest => CursorIcon::SwResize,
+                ResizeDirection::SouthEast => CursorIcon::SeResize,
+            })
+        } else if self.cursor_in_margin {
+            self.cursor_in_margin = false;
+            self.reload_cursor_style();
+            None
+        } else {
+            None
+        }
+    }
+
+    /// Called when the pointer leaves the window surface.
+    pub fn margin_point_left(&mut self) {
+        self.cursor_in_margin = false;
+    }
+
     /// Get the stored resizable state.
     #[inline]
     pub fn resizable(&self) -> bool {
@@ -790,7 +882,7 @@ impl WindowState {
     pub fn set_cursor(&mut self, cursor_icon: CursorIcon) {
         self.selected_cursor = SelectedCursor::Named(cursor_icon);
 
-        if !self.cursor_visible {
+        if !self.cursor_visible || self.cursor_in_margin {
             return;
         }
 
@@ -817,7 +909,7 @@ impl WindowState {
             CustomCursor::new(&mut pool, &cursor)
         };
 
-        if self.cursor_visible {
+        if self.cursor_visible && !self.cursor_in_margin {
             self.apply_custom_cursor(&cursor);
         }
 

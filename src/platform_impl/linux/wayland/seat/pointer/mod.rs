@@ -133,12 +133,17 @@ impl PointerHandler for WinitState {
                     // Set the currently focused surface.
                     pointer.winit_data().inner.lock().unwrap().surface = Some(window_id);
 
-                    self.events_sink.push_window_event(
-                        WindowEvent::CursorMoved { device_id, position },
-                        window_id,
-                    );
+                    if let Some(icon) = window.margin_point_moved(event.position.0, event.position.1) {
+                        let _ = themed_pointer.set_cursor(connection, icon);
+                    } else {
+                        self.events_sink.push_window_event(
+                            WindowEvent::CursorMoved { device_id, position },
+                            window_id,
+                        );
+                    }
                 },
                 PointerEventKind::Leave { .. } => {
+                    window.margin_point_left();
                     window.pointer_left(Arc::downgrade(themed_pointer));
 
                     // Remove the active surface.
@@ -148,18 +153,32 @@ impl PointerHandler for WinitState {
                         .push_window_event(WindowEvent::CursorLeft { device_id }, window_id);
                 },
                 PointerEventKind::Motion { .. } => {
-                    self.events_sink.push_window_event(
-                        WindowEvent::CursorMoved { device_id, position },
-                        window_id,
-                    );
+                    if let Some(icon) = window.margin_point_moved(event.position.0, event.position.1) {
+                        let _ = themed_pointer.set_cursor(connection, icon);
+                    } else {
+                        self.events_sink.push_window_event(
+                            WindowEvent::CursorMoved { device_id, position },
+                            window_id,
+                        );
+                    }
                 },
                 ref kind @ PointerEventKind::Press { button, serial, .. }
                 | ref kind @ PointerEventKind::Release { button, serial, .. } => {
                     // Update the last button serial.
                     pointer.winit_data().inner.lock().unwrap().latest_button_serial = serial;
 
+                    let is_press = matches!(kind, PointerEventKind::Press { .. });
                     let button = wayland_button_to_winit(button);
-                    let state = if matches!(kind, PointerEventKind::Press { .. }) {
+
+                    // If pressing left button in custom margins, trigger native Wayland resize!
+                    if is_press && button == MouseButton::Left {
+                        if let Some(direction) = window.margin_resize_direction(event.position.0, event.position.1) {
+                            window.window.resize(seat, serial, direction.into());
+                            continue;
+                        }
+                    }
+
+                    let state = if is_press {
                         ElementState::Pressed
                     } else {
                         ElementState::Released

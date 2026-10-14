@@ -1,9 +1,47 @@
 //! The Wayland window.
 
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+
+fn surface_windows() -> &'static Mutex<HashMap<usize, Weak<Mutex<WindowState>>>> {
+    static MAP: OnceLock<Mutex<HashMap<usize, Weak<Mutex<WindowState>>>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Sets window geometry by raw `wl_surface` pointer.
+pub fn set_geometry_for_surface_ptr(surface_ptr: *mut c_void, x: i32, y: i32, width: u32, height: u32) -> bool {
+    let key = surface_ptr as usize;
+    let window_state = {
+        let mut map = surface_windows().lock().unwrap();
+        map.retain(|_, weak| weak.strong_count() > 0);
+        map.get(&key).and_then(|w| w.upgrade())
+    };
+    if let Some(state) = window_state {
+        state.lock().unwrap().set_custom_window_geometry(x, y, width, height);
+        true
+    } else {
+        false
+    }
+}
+
+/// Sets window geometry margins (left, top, right, bottom) by raw `wl_surface` pointer.
+pub fn set_geometry_margins_for_surface_ptr(surface_ptr: *mut c_void, left: u32, top: u32, right: u32, bottom: u32) -> bool {
+    let key = surface_ptr as usize;
+    let window_state = {
+        let mut map = surface_windows().lock().unwrap();
+        map.retain(|_, weak| weak.strong_count() > 0);
+        map.get(&key).and_then(|w| w.upgrade())
+    };
+    if let Some(state) = window_state {
+        state.lock().unwrap().set_geometry_margins(left, top, right, bottom);
+        true
+    } else {
+        false
+    }
+}
 
 use sctk::reexports::client::protocol::wl_display::WlDisplay;
 use sctk::reexports::client::protocol::wl_surface::WlSurface;
@@ -96,9 +134,13 @@ impl Window {
 
         let size: Size = attributes.inner_size.unwrap_or(LogicalSize::new(800., 600.).into());
 
-        // This fork always requests client-side decorations so the sctk-adwaita
-        // frame (border + shadow) is used on compositors that support CSD (e.g. GNOME).
-        let default_decorations = WindowDecorations::RequestClient;
+        // We prefer server side decorations, however to not have decorations we ask for client
+        // side decorations instead.
+        let default_decorations = if attributes.decorations {
+            WindowDecorations::RequestServer
+        } else {
+            WindowDecorations::RequestClient
+        };
 
         let window =
             state.xdg_shell.create_window(surface.clone(), default_decorations, &queue_handle);
@@ -180,6 +222,8 @@ impl Window {
 
         // Add the window and window requests into the state.
         let window_state = Arc::new(Mutex::new(window_state));
+        let surface_key = surface.id().as_ptr() as usize;
+        surface_windows().lock().unwrap().insert(surface_key, Arc::downgrade(&window_state));
         let window_id = super::make_wid(&surface);
         state.windows.get_mut().insert(window_id, window_state.clone());
 
@@ -575,6 +619,16 @@ impl Window {
     #[inline]
     pub fn drag_window(&self) -> Result<(), ExternalError> {
         self.window_state.lock().unwrap().drag_window()
+    }
+
+    #[inline]
+    pub fn set_window_geometry(&self, x: i32, y: i32, width: u32, height: u32) {
+        self.window_state.lock().unwrap().set_custom_window_geometry(x, y, width, height);
+    }
+
+    #[inline]
+    pub fn set_geometry_margins(&self, left: u32, top: u32, right: u32, bottom: u32) {
+        self.window_state.lock().unwrap().set_geometry_margins(left, top, right, bottom);
     }
 
     #[inline]

@@ -151,6 +151,12 @@ pub struct WindowState {
     /// The value is the serial of the event triggered moved.
     has_pending_move: Option<u32>,
 
+    /// Custom window geometry overriding SCTK defaults (e.g. For custom transparent padding).
+    custom_window_geometry: Option<(i32, i32, u32, u32)>,
+
+    /// Custom window margins for geometry (left, top, right, bottom).
+    custom_margins: Option<(u32, u32, u32, u32)>,
+
     /// The underlying SCTK window.
     pub window: Window,
 
@@ -219,6 +225,8 @@ impl WindowState {
             title: String::default(),
             transparent: false,
             viewport,
+            custom_window_geometry: None,
+            custom_margins: None,
             window,
         }
     }
@@ -330,6 +338,21 @@ impl WindowState {
                 _ => (self.size, true),
             }
         };
+
+        // If custom window geometry/margins are active, compositor-sent sizes in `configure.new_size`
+        // correspond to the window's GEOMETRY, not the surface size. Expand by custom margins
+        // to prevent window from shrinking on configure/focus events.
+        if let (Some(_w), Some(_h)) = configure.new_size {
+            if let Some((l, t, r, b)) = self.custom_margins {
+                new_size.width = new_size.width.saturating_add(l + r);
+                new_size.height = new_size.height.saturating_add(t + b);
+            } else if let Some((_gx, _gy, gw, gh)) = self.custom_window_geometry {
+                let margin_w = self.size.width.saturating_sub(gw);
+                let margin_h = self.size.height.saturating_sub(gh);
+                new_size.width = new_size.width.saturating_add(margin_w);
+                new_size.height = new_size.height.saturating_add(margin_h);
+            }
+        }
 
         // Apply configure bounds only when compositor let the user decide what size to pick.
         if constrain {
@@ -668,6 +691,28 @@ impl WindowState {
         }
     }
 
+    /// Sets custom window geometry margins (left, top, right, bottom).
+    pub fn set_geometry_margins(&mut self, left: u32, top: u32, right: u32, bottom: u32) {
+        self.custom_margins = Some((left, top, right, bottom));
+        let gx = left as i32;
+        let gy = top as i32;
+        let gw = self.size.width.saturating_sub(left + right);
+        let gh = self.size.height.saturating_sub(top + bottom);
+        if gw > 0 && gh > 0 {
+            self.window.xdg_surface().set_window_geometry(gx, gy, gw as i32, gh as i32);
+            self.window.wl_surface().commit();
+            let _ = self.connection.flush();
+        }
+    }
+
+    /// Sets custom window geometry (e.g. For custom transparent margins/shadows).
+    pub fn set_custom_window_geometry(&mut self, x: i32, y: i32, width: u32, height: u32) {
+        self.custom_window_geometry = Some((x, y, width, height));
+        self.window.xdg_surface().set_window_geometry(x, y, width as i32, height as i32);
+        self.window.wl_surface().commit();
+        let _ = self.connection.flush();
+    }
+
     /// Try to resize the window when the user can do so.
     pub fn request_inner_size(&mut self, inner_size: Size) -> PhysicalSize<u32> {
         if self.last_configure.as_ref().map(Self::is_stateless).unwrap_or(true) {
@@ -705,12 +750,24 @@ impl WindowState {
         self.reload_transparency_hint();
 
         // Set the window geometry.
-        self.window.xdg_surface().set_window_geometry(
-            x,
-            y,
-            outer_size.width as i32,
-            outer_size.height as i32,
-        );
+        if let Some((l, t, r, b)) = self.custom_margins {
+            let gx = l as i32;
+            let gy = t as i32;
+            let gw = self.size.width.saturating_sub(l + r);
+            let gh = self.size.height.saturating_sub(t + b);
+            if gw > 0 && gh > 0 {
+                self.window.xdg_surface().set_window_geometry(gx, gy, gw as i32, gh as i32);
+            }
+        } else if let Some((gx, gy, gw, gh)) = self.custom_window_geometry {
+            self.window.xdg_surface().set_window_geometry(gx, gy, gw as i32, gh as i32);
+        } else {
+            self.window.xdg_surface().set_window_geometry(
+                x,
+                y,
+                outer_size.width as i32,
+                outer_size.height as i32,
+            );
+        }
 
         // Update the target viewport, this is used if and only if fractional scaling is in use.
         if let Some(viewport) = self.viewport.as_ref() {
@@ -1212,11 +1269,9 @@ impl From<ResizeDirection> for XdgResizeEdge {
 // NOTE: Rust doesn't allow `From<Option<Theme>>`.
 #[cfg(feature = "sctk-adwaita")]
 fn into_sctk_adwaita_config(theme: Option<Theme>) -> sctk_adwaita::FrameConfig {
-    let mut config = match theme {
+    match theme {
         Some(Theme::Light) => sctk_adwaita::FrameConfig::light(),
         Some(Theme::Dark) => sctk_adwaita::FrameConfig::dark(),
         None => sctk_adwaita::FrameConfig::auto(),
-    };
-    config.hide_titlebar = true;
-    config
+    }
 }

@@ -81,6 +81,12 @@ impl<T> EventLoopBuilderExtWayland for EventLoopBuilder<T> {
 pub trait WindowExtWayland {
     /// Returns `xdg_toplevel` of the window or [`None`] if the window is X11 window.
     fn xdg_toplevel(&self) -> Option<NonNull<c_void>>;
+
+    /// Sets the window geometry (visible bounds excluding shadows/margins for window manager snapping/tiling).
+    fn set_window_geometry(&self, x: i32, y: i32, width: u32, height: u32);
+
+    /// Sets the window geometry margins (left, top, right, bottom) excluding shadows for window manager snapping/tiling.
+    fn set_geometry_margins(&self, left: u32, top: u32, right: u32, bottom: u32);
 }
 
 impl WindowExtWayland for Window {
@@ -93,6 +99,75 @@ impl WindowExtWayland for Window {
             #[cfg(wayland_platform)]
             crate::platform_impl::Window::Wayland(window) => window.xdg_toplevel(),
         }
+    }
+
+    #[inline]
+    fn set_window_geometry(&self, x: i32, y: i32, width: u32, height: u32) {
+        #[allow(clippy::single_match)]
+        match &self.window {
+            #[cfg(x11_platform)]
+            crate::platform_impl::Window::X(_) => (),
+            #[cfg(wayland_platform)]
+            crate::platform_impl::Window::Wayland(window) => {
+                window.set_window_geometry(x, y, width, height)
+            }
+        }
+    }
+
+    #[inline]
+    fn set_geometry_margins(&self, left: u32, top: u32, right: u32, bottom: u32) {
+        #[allow(clippy::single_match)]
+        match &self.window {
+            #[cfg(x11_platform)]
+            crate::platform_impl::Window::X(_) => (),
+            #[cfg(wayland_platform)]
+            crate::platform_impl::Window::Wayland(window) => {
+                window.set_geometry_margins(left, top, right, bottom)
+            }
+        }
+    }
+}
+
+/// Sets window geometry for a Wayland window by its raw `wl_surface` pointer.
+///
+/// This is particularly useful for GUI toolkits (such as Iced) that provide
+/// raw window handles instead of `winit::window::Window`.
+pub fn set_window_geometry_for_surface_ptr(
+    surface_ptr: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> bool {
+    #[cfg(wayland_platform)]
+    {
+        crate::platform_impl::wayland::set_geometry_for_surface_ptr(surface_ptr, x, y, width, height)
+    }
+    #[cfg(not(wayland_platform))]
+    {
+        let _ = (surface_ptr, x, y, width, height);
+        false
+    }
+}
+
+/// Sets window geometry margins (left, top, right, bottom) for a Wayland window by its raw `wl_surface` pointer.
+///
+/// The window manager will snap/tile the window excluding these margins.
+pub fn set_geometry_margins_for_surface_ptr(
+    surface_ptr: *mut c_void,
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+) -> bool {
+    #[cfg(wayland_platform)]
+    {
+        crate::platform_impl::wayland::set_geometry_margins_for_surface_ptr(surface_ptr, left, top, right, bottom)
+    }
+    #[cfg(not(wayland_platform))]
+    {
+        let _ = (surface_ptr, left, top, right, bottom);
+        false
     }
 }
 
